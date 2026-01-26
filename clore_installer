@@ -2,17 +2,17 @@
 set -euo pipefail
 
 # ============================================================
-# clore_gpu_worker_setup.sh
+# clore_installer (Supervisor edition, HOME fixed, + uploader)
 #
-# GPU worker box for Clore:
-#  - installs CUDA toolkit (as you requested)
-#  - installs Hashcat 7.1.2 into /opt + symlink /usr/local/bin/hashcat
-#  - creates /home/hashcat/.hashcat/* layout
-#  - git clone your cloud_finder repo into /home/hashcat/cloud_finder
-#  - creates venv and installs requirments.txt
-#  - OPTIONAL: systemd service to run gpu-consumer.py at boot
-#
-# ASSUMPTION: Redis is reachable on the worker at 127.0.0.1:6379 via SSH tunnel.
+# - Installs CUDA toolkit + OpenCL loader + tools
+# - Installs Hashcat 7.1.2 to /opt + symlink /usr/local/bin/hashcat
+# - Creates /home/hashcat/.hashcat/* layout
+# - Clones/updates https://github.com/ericgr3gory/cloud_finder.git
+# - Creates venv + installs requirments.txt
+# - Adds TWO supervisor programs:
+#     1) hashkitty-worker   -> gpu-consumer.py
+#     2) hashkitty-uploader -> redis_upload_feeder.py
+# - Fixes HOME so "~/.hashcat" resolves to /home/hashcat, not /root
 # ============================================================
 
 ### --- CONFIG ---
@@ -30,10 +30,12 @@ REPO_DIR="${WORKER_HOME}/cloud_finder"
 VENV_DIR="${REPO_DIR}/.venv"
 REQ_FILE="${REPO_DIR}/requirments.txt"  # keep your spelling
 
-# If you want the GPU worker to auto-start on reboot:
-INSTALL_SYSTEMD="yes"   # yes|no
+SUP_CONF_WORKER="/etc/supervisor/conf.d/hashkitty-worker.conf"
+SUP_CONF_UPLOADER="/etc/supervisor/conf.d/hashkitty-uploader.conf"
 
-### --- helpers ---
+# Toggle uploader feeder
+ENABLE_UPLOADER="yes"  # yes|no
+
 log(){ echo -e "\n[+] $*\n"; }
 warn(){ echo -e "\n[!] $*\n" >&2; }
 die(){ echo -e "\n[✗] $*\n" >&2; exit 1; }
@@ -51,7 +53,7 @@ apt_update_once() {
 }
 
 install_packages() {
-  log "Installing packages (CUDA toolkit, OpenCL loader, python, git, 7z, tools)..."
+  log "Installing packages (CUDA toolkit, OpenCL loader, python, git, 7z, supervisor tools)..."
   apt_update_once
   apt-get install -y \
     nvidia-cuda-toolkit \
@@ -65,7 +67,8 @@ install_packages() {
     wget \
     ca-certificates \
     redis-tools \
-    tmux
+    tmux \
+    supervisor
 }
 
 ensure_user() {
@@ -80,7 +83,6 @@ ensure_user() {
 make_dirs() {
   log "Creating /home/hashcat/.hashcat directory layout..."
   mkdir -p \
-    "${HASHCAT_DOTDIR}" \
     "${HASHCAT_DOTDIR}/hashz" \
     "${HASHCAT_DOTDIR}/cracked" \
     "${HASHCAT_DOTDIR}/dictionaries" \
@@ -144,57 +146,98 @@ setup_venv() {
   fi
 }
 
-install_systemd_service() {
-  [[ "${INSTALL_SYSTEMD}" == "yes" ]] || { log "Skipping systemd install (INSTALL_SYSTEMD=no)."; return 0; }
+write_supervisor_worker() {
+  log "Writing Supervisor program: hashkitty-worker (gpu-consumer.py)"
 
-  log "Installing systemd service: hashkitty-worker.service"
-  cat > /etc/systemd/system/hashkitty-worker.service <<EOF
-[Unit]
-Description=Hashkitty GPU Worker (cloud_finder gpu-consumer)
-After=network-online.target
-Wants=network-online.target
+  mkdir -p "${HASHCAT_DOTDIR}/logs"
+  chown -R "${WORKER_USER}:${WORKER_USER}" "${HASHCAT_DOTDIR}"
 
-[Service]
-Type=simple
-User=${WORKER_USER}
-Group=${WORKER_USER}
-WorkingDirectory=${REPO_DIR}
-Environment=HOME=${WORKER_HOME}
+  cat > "${SUP_CONF_WORKER}" <<EOF
+[program:hashkitty-worker]
+directory=${REPO_DIR}
+command=${VENV_DIR}/bin/python ${REPO_DIR}/gpu-consumer.py
+user=${WORKER_USER}
 
-# Assumes redis is available on 127.0.0.1:6379 via your SSH tunnel.
-# Your code should default to that, or be hardcoded accordingly.
-ExecStart=${VENV_DIR}/bin/python ${REPO_DIR}/gpu-consumer.py
+; CRITICAL: make ~ expand to /home/hashcat (not /root)
+environment=HOME="${WORKER_HOME}",USER="${WORKER_USER}",LOGNAME="${WORKER_USER}"
 
-Restart=always
-RestartSec=3
+autostart=true
+autorestart=true
+startretries=999
+stopsignal=TERM
+stopasgroup=true
+killasgroup=true
 
-[Install]
-WantedBy=multi-user.target
+stdout_logfile=${HASHCAT_DOTDIR}/logs/worker.out
+stderr_logfile=${HASHCAT_DOTDIR}/logs/worker.err
+stdout_logfile_maxbytes=20MB
+stdout_logfile_backups=5
+stderr_logfile_maxbytes=20MB
+stderr_logfile_backups=5
 EOF
+}
 
-  systemctl daemon-reload
-  systemctl enable hashkitty-worker.service
-  systemctl restart hashkitty-worker.service || true
+write_supervisor_uploader() {
+  [[ "${ENABLE_UPLOADER}" == "yes" ]] || { log "ENABLE_UPLOADER=no, skipping uploader feeder."; return 0; }
 
-  log "Service status:"
-  systemctl --no-pager --full status hashkitty-worker.service || true
+  log "Writing Supervisor program: hashkitty-uploader (redis_upload_feeder.py)"
+
+  cat > "${SUP_CONF_UPLOADER}" <<EOF
+[program:hashkitty-uploader]
+directory=${REPO_DIR}
+command=${VENV_DIR}/bin/python ${REPO_DIR}/redis_upload_feeder.py
+user=${WORKER_USER}
+
+; CRITICAL: make ~ expand to /home/hashcat (not /root)
+environment=HOME="${WORKER_HOME}",USER="${WORKER_USER}",LOGNAME="${WORKER_USER}"
+
+autostart=true
+autorestart=true
+startretries=999
+stopsignal=TERM
+stopasgroup=true
+killasgroup=true
+
+stdout_logfile=${HASHCAT_DOTDIR}/logs/uploader.out
+stderr_logfile=${HASHCAT_DOTDIR}/logs/uploader.err
+stdout_logfile_maxbytes=20MB
+stdout_logfile_backups=5
+stderr_logfile_maxbytes=20MB
+stderr_logfile_backups=5
+EOF
+}
+
+reload_supervisor() {
+  log "Reloading Supervisor..."
+  supervisorctl reread
+  supervisorctl update
+
+  # Restart both if present
+  supervisorctl restart hashkitty-worker || true
+  if [[ "${ENABLE_UPLOADER}" == "yes" ]]; then
+    supervisorctl restart hashkitty-uploader || true
+  fi
+
+  log "Supervisor status:"
+  supervisorctl status || true
 }
 
 post_notes() {
-  log "Done. Next steps:"
-  echo "1) Verify GPU:"
-  echo "   nvidia-smi"
+  log "Done. Quick checks:"
+  echo "  nvidia-smi"
+  echo "  hashcat --version"
+  echo "  hashcat -I"
   echo
-  echo "2) Verify hashcat sees OpenCL:"
-  echo "   hashcat --version"
-  echo "   hashcat -I"
-  echo "   clinfo | head -n 60"
+  echo "Supervisor:"
+  echo "  supervisorctl status"
   echo
-  echo "3) Bring up your Redis tunnel so the worker has redis at 127.0.0.1:6379"
-  echo "   (see commands below)"
-  echo
-  echo "4) If systemd enabled:"
-  echo "   journalctl -u hashkitty-worker -f"
+  echo "Logs:"
+  echo "  tail -f ${HASHCAT_DOTDIR}/logs/worker.out"
+  echo "  tail -f ${HASHCAT_DOTDIR}/logs/worker.err"
+  if [[ "${ENABLE_UPLOADER}" == "yes" ]]; then
+    echo "  tail -f ${HASHCAT_DOTDIR}/logs/uploader.out"
+    echo "  tail -f ${HASHCAT_DOTDIR}/logs/uploader.err"
+  fi
 }
 
 main() {
@@ -205,7 +248,9 @@ main() {
   install_hashcat
   clone_or_update_repo
   setup_venv
-  install_systemd_service
+  write_supervisor_worker
+  write_supervisor_uploader
+  reload_supervisor
   post_notes
 }
 

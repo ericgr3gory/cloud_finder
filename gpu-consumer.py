@@ -190,7 +190,7 @@ def main():
         """
         check for new priority job
         """
-
+        """
         priority_job, redis_payload = r.pop_priority_job()
 
         if priority_job:
@@ -223,7 +223,7 @@ def main():
             if proc:
                 proc.wait()
                 r.remove_priorty_inflight(redis_payload)
-
+        """
         """
         restore job from reedis if no priority and no current restore and no background jobs are running
         """
@@ -258,6 +258,7 @@ def main():
                             "background": True,
                             "redis_payload": redis_payload,
                         }
+            sleep(0.25)
 
     logger.info("Shutting down cleanly.")
 
