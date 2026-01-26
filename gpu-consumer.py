@@ -65,11 +65,11 @@ def validate_job(job: dict) -> bool | None:
     except KeyError as e:
         logger.error(f"error parsing job keys {e}")
         return False
-
+    """
     if not hashz or not check_file(hashz):
         logger.error(f"hashz or hashz file doesn't exsist: {hashz}")
         return False
-
+    """
     if not isinstance(hashcat_cmd, (list, tuple)) or not hashcat_cmd:
         logger.error(f"Job {job_id} has no command")
         return False
