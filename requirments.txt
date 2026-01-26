@@ -1,0 +1,9 @@
+dotenv
+requests
+websocket-client
+inotify-simple
+psutil
+paramiko
+redis
+fastapi
+uvicorn[standard]
