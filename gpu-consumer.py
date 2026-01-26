@@ -94,6 +94,7 @@ def get_crackin(job: dict) -> None | Popen:
     algo = job.get("algorithm_id")
     total_hashz = job.get("total_hashz")
     log_path = str(LOG_DIR / f"hashcat.{job_id}.log")
+    hashcat_cmd.insert(1, '--backend-ignore-cuda')
 
     try:
         with open(log_path, "a", buffering=1) as logf:
