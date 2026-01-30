@@ -4,8 +4,9 @@ set -euo pipefail
 # ============================================================
 # clore_installer (Supervisor edition, HOME fixed, + uploader)
 #
-# - Installs CUDA toolkit + OpenCL loader + tools
-# - Installs Hashcat 7.1.2 to /opt + symlink /usr/local/bin/hashcat
+# - Installs OpenCL loader + tools
+# - Installs Hashcat 7.1.2 to /home/hashcat/hashcat-7.1.2
+# - Symlinks /usr/local/bin/hashcat -> hashcat.bin
 # - Creates /home/hashcat/.hashcat/* layout
 # - Clones/updates https://github.com/ericgr3gory/cloud_finder.git
 # - Creates venv + installs requirments.txt
@@ -13,17 +14,28 @@ set -euo pipefail
 #     1) hashkitty-worker   -> gpu-consumer.py
 #     2) hashkitty-uploader -> redis_upload_feeder.py
 # - Fixes HOME so "~/.hashcat" resolves to /home/hashcat, not /root
+#
+# FIXES ADDED:
+# - Make ALL files/dirs under HASHCAT_OPT_DIR owned by user "hashcat"
+# - Create compatibility symlink:
+#     /home/ericgr3gory/.hashcat  ->  /home/hashcat/.hashcat
+#   so jobs containing /home/ericgr3gory/.hashcat/* paths run on rentals.
 # ============================================================
 
 ### --- CONFIG ---
 HASHCAT_VER="7.1.2"
 HASHCAT_7Z_URL="https://hashcat.net/files/hashcat-${HASHCAT_VER}.7z"
-HASHCAT_OPT_DIR="/opt/hashcat-${HASHCAT_VER}"
+HASHCAT_OPT_DIR="/home/hashcat/hashcat-${HASHCAT_VER}"
 HASHCAT_SYMLINK="/usr/local/bin/hashcat"
 
 WORKER_USER="hashcat"
 WORKER_HOME="/home/${WORKER_USER}"
 HASHCAT_DOTDIR="${WORKER_HOME}/.hashcat"
+
+# Compatibility user home expected by some jobs
+COMPAT_USER="ericgr3gory"
+COMPAT_HOME="/home/${COMPAT_USER}"
+COMPAT_HASHCAT="${COMPAT_HOME}/.hashcat"
 
 REPO_URL="https://github.com/ericgr3gory/cloud_finder.git"
 REPO_DIR="${WORKER_HOME}/cloud_finder"
@@ -53,10 +65,9 @@ apt_update_once() {
 }
 
 install_packages() {
-  log "Installing packages (CUDA toolkit, OpenCL loader, python, git, 7z, supervisor tools)..."
+  log "Installing packages (OpenCL loader, python, git, 7z, supervisor tools)..."
   apt_update_once
   apt-get install -y \
-    nvidia-cuda-toolkit \
     ocl-icd-libopencl1 \
     clinfo \
     p7zip-full \
@@ -81,7 +92,7 @@ ensure_user() {
 }
 
 make_dirs() {
-  log "Creating /home/hashcat/.hashcat directory layout..."
+  log "Creating ${HASHCAT_DOTDIR} directory layout..."
   mkdir -p \
     "${HASHCAT_DOTDIR}/hashz" \
     "${HASHCAT_DOTDIR}/cracked" \
@@ -97,6 +108,30 @@ make_dirs() {
     "${HASHCAT_DOTDIR}/uploads"
 
   chown -R "${WORKER_USER}:${WORKER_USER}" "${WORKER_HOME}"
+}
+
+link_compat_hashcat_home() {
+  # Make /home/ericgr3gory/.hashcat/* resolve to /home/hashcat/.hashcat/*
+  # so jobs with hard-coded /home/ericgr3gory paths work on rentals.
+  log "Linking compatibility path: ${COMPAT_HASHCAT} -> ${HASHCAT_DOTDIR}"
+
+  mkdir -p "${COMPAT_HOME}"
+
+  # If something already exists at /home/ericgr3gory/.hashcat and it's NOT a symlink,
+  # move it aside rather than deleting it.
+  if [[ -e "${COMPAT_HASHCAT}" && ! -L "${COMPAT_HASHCAT}" ]]; then
+    local ts
+    ts="$(date +%Y%m%d_%H%M%S)"
+    warn "${COMPAT_HASHCAT} exists and is not a symlink. Moving to ${COMPAT_HASHCAT}.bak.${ts}"
+    mv "${COMPAT_HASHCAT}" "${COMPAT_HASHCAT}.bak.${ts}"
+  fi
+
+  # Create/replace symlink
+  ln -sfn "${HASHCAT_DOTDIR}" "${COMPAT_HASHCAT}"
+
+  # Ownership of /home/ericgr3gory itself isn't critical for the symlink to work,
+  # but keep it sane:
+  chown -R root:root "${COMPAT_HOME}" || true
 }
 
 install_hashcat() {
@@ -115,6 +150,15 @@ install_hashcat() {
 
   log "Symlinking ${HASHCAT_SYMLINK} -> ${HASHCAT_OPT_DIR}/hashcat.bin"
   ln -sfn "${HASHCAT_OPT_DIR}/hashcat.bin" "${HASHCAT_SYMLINK}"
+}
+
+fix_hashcat_install_ownership() {
+  log "Making ALL of ${HASHCAT_OPT_DIR} owned by ${WORKER_USER}:${WORKER_USER} ..."
+  chown -R "${WORKER_USER}:${WORKER_USER}" "${HASHCAT_OPT_DIR}"
+
+  # Ensure directories are traversable and files readable; give user write everywhere.
+  # If you want tighter perms (no world-readable), tell me and I'll adjust.
+  chmod -R u+rwX,go+rX "${HASHCAT_OPT_DIR}"
 }
 
 clone_or_update_repo() {
@@ -231,6 +275,14 @@ post_notes() {
   echo "Supervisor:"
   echo "  supervisorctl status"
   echo
+  echo "Ownership sanity:"
+  echo "  ls -ld ${HASHCAT_OPT_DIR}"
+  echo "  sudo -u ${WORKER_USER} test -w ${HASHCAT_OPT_DIR}/kernels && echo 'hashcat can write kernels ✅'"
+  echo
+  echo "Compat symlink sanity:"
+  echo "  ls -la ${COMPAT_HOME}"
+  echo "  ls -la ${COMPAT_HASHCAT}"
+  echo
   echo "Logs:"
   echo "  tail -f ${HASHCAT_DOTDIR}/logs/worker.out"
   echo "  tail -f ${HASHCAT_DOTDIR}/logs/worker.err"
@@ -245,7 +297,9 @@ main() {
   install_packages
   ensure_user
   make_dirs
+  link_compat_hashcat_home
   install_hashcat
+  fix_hashcat_install_ownership
   clone_or_update_repo
   setup_venv
   write_supervisor_worker
