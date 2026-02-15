@@ -292,58 +292,56 @@ reload_supervisor() {
   supervisorctl status || true
 }
 
-download_and_extract_hashmob_founds() {
-  log "Downloading Hashmob founds archives (one at a time) into ${HASHCAT_DOTDIR}/dictionaries ..."
+download_and_extract_dictionaries() {
+  log "Downloading + extracting dictionary archives into ${HASHCAT_DOTDIR}/dictionaries ..."
 
   local dst="${HASHCAT_DOTDIR}/dictionaries"
   mkdir -p "${dst}"
   chown -R "${WORKER_USER}:${WORKER_USER}" "${dst}"
 
-  local url1="https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.larger.found.7z"
-  local url2="https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.small.found.7z"
+  # ---- URLs (download sequentially) ----
+  local urls=(
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.larger.found.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.small.found.7z"
+    "https://weakpass.com/download/2017/weakpass_4a.latin.txt.7z"
+    "https://weakpass.com/download/1927/cyclone.hashesorg.hashkiller.combined.txt.7z"
+    "https://weakpass.com/download/2078/hashmob.net_2025.tiny.found.7z"
+  )
 
-  local f1="${dst}/hashmob.net_2026-02-15.larger.found.7z"
-  local f2="${dst}/hashmob.net_2026-02-15.small.found.7z"
-
-  # Download sequentially
+  # ---- Download one-at-a-time ----
   runuser -u "${WORKER_USER}" -- bash -lc "
     set -euo pipefail
     cd '${dst}'
-    wget -c --timestamping '${url1}'
-    wget -c --timestamping '${url2}'
+    for u in ${urls[*]@Q}; do
+      echo \"[+] wget: \$u\"
+      wget -c --timestamping --content-disposition \"\$u\"
+    done
   "
 
-  log "Extracting both Hashmob archives into ${dst} ..."
+  log "Extracting archives (skip overwrites) into ${dst} ..."
 
-  # Extract BOTH archives after downloads finish.
-  # - Uses -aos to skip overwriting existing files (safe for reruns)
-  # - Writes files into the dictionaries folder
+  # ---- Extract AFTER all downloads ----
   runuser -u "${WORKER_USER}" -- bash -lc "
     set -euo pipefail
     cd '${dst}'
+    shopt -s nullglob
 
-    if [[ -f '${f1}' ]]; then
-      7z x -aos -y '${f1}' >/dev/null
-    else
-      echo '[!] Missing: ${f1}' >&2
+    archives=( *.7z )
+    if (( \${#archives[@]} == 0 )); then
+      echo '[!] No .7z archives found to extract' >&2
       exit 1
     fi
 
-    if [[ -f '${f2}' ]]; then
-      7z x -aos -y '${f2}' >/dev/null
-    else
-      echo '[!] Missing: ${f2}' >&2
-      exit 1
-    fi
+    for f in \"\${archives[@]}\"; do
+      echo \"[+] 7z x: \$f\"
+      7z x -aos -y \"\$f\" >/dev/null
+    done
   "
 
-  # Keep ownership correct (7z extracts as the running user anyway, but be explicit)
   chown -R "${WORKER_USER}:${WORKER_USER}" "${dst}"
-
-  log "Hashmob download + extract complete."
-  echo "  Contents:"
-  ls -lah "${dst}" | sed -n '1,60p' || true
+  log "Dictionary download + extract complete."
 }
+
 
 post_notes() {
   log "Done. Quick checks:"
@@ -388,7 +386,8 @@ main() {
   post_notes
 
   # LAST STEP: download BOTH, then extract BOTH into ~/.hashcat/dictionaries
-  download_and_extract_hashmob_founds
+  download_and_extract_dictionaries
+
 }
 
 main "$@"
