@@ -20,6 +20,12 @@ set -euo pipefail
 # - Create compatibility symlink:
 #     /home/ericgr3gory/.hashcat  ->  /home/hashcat/.hashcat
 #   so jobs containing /home/ericgr3gory/.hashcat/* paths run on rentals.
+#
+# NEW ADDITIONS:
+# - Create /home/hashcat/.hashcat/background_cracks
+# - As a LAST STEP download (one-at-a-time) into ~/.hashcat/dictionaries:
+#     https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.larger.found.7z
+#     https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.small.found.7z
 # ============================================================
 
 ### --- CONFIG ---
@@ -79,7 +85,8 @@ install_packages() {
     ca-certificates \
     redis-tools \
     tmux \
-    supervisor
+    supervisor \
+    less 
 }
 
 ensure_user() {
@@ -96,6 +103,7 @@ make_dirs() {
   mkdir -p \
     "${HASHCAT_DOTDIR}/hashz" \
     "${HASHCAT_DOTDIR}/cracked" \
+    "${HASHCAT_DOTDIR}/background_cracks" \
     "${HASHCAT_DOTDIR}/dictionaries" \
     "${HASHCAT_DOTDIR}/hashcat-restores" \
     "${HASHCAT_DOTDIR}/jobs" \
@@ -157,7 +165,6 @@ fix_hashcat_install_ownership() {
   chown -R "${WORKER_USER}:${WORKER_USER}" "${HASHCAT_OPT_DIR}"
 
   # Ensure directories are traversable and files readable; give user write everywhere.
-  # If you want tighter perms (no world-readable), tell me and I'll adjust.
   chmod -R u+rwX,go+rX "${HASHCAT_OPT_DIR}"
 }
 
@@ -266,6 +273,25 @@ reload_supervisor() {
   supervisorctl status || true
 }
 
+download_hashmob_founds() {
+  log "Downloading Hashmob founds archives (one at a time) into ${HASHCAT_DOTDIR}/dictionaries ..."
+
+  local dst="${HASHCAT_DOTDIR}/dictionaries"
+  mkdir -p "${dst}"
+  chown -R "${WORKER_USER}:${WORKER_USER}" "${dst}"
+
+  local url1="https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.larger.found.7z"
+  local url2="https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.small.found.7z"
+
+  # Download one at a time, resume if partial, keep timestamps
+  runuser -u "${WORKER_USER}" -- bash -lc "
+    set -euo pipefail
+    cd '${dst}'
+    wget -c --timestamping '${url1}'
+    wget -c --timestamping '${url2}'
+  "
+}
+
 post_notes() {
   log "Done. Quick checks:"
   echo "  nvidia-smi"
@@ -306,6 +332,9 @@ main() {
   write_supervisor_uploader
   reload_supervisor
   post_notes
+
+  # LAST STEP: download hashmob archives sequentially into ~/.hashcat/dictionaries
+  download_hashmob_founds
 }
 
 main "$@"
