@@ -15,17 +15,20 @@ set -euo pipefail
 #     2) hashkitty-uploader -> redis_upload_feeder.py
 # - Fixes HOME so "~/.hashcat" resolves to /home/hashcat, not /root
 #
-# FIXES ADDED:
+# FEATURES:
 # - Make ALL files/dirs under HASHCAT_OPT_DIR owned by user "hashcat"
 # - Create compatibility symlink:
 #     /home/ericgr3gory/.hashcat  ->  /home/hashcat/.hashcat
-#   so jobs containing /home/ericgr3gory/.hashcat/* paths run on rentals.
-#
-# NEW ADDITIONS:
 # - Create /home/hashcat/.hashcat/background_cracks
-# - As a LAST STEP download (one-at-a-time) into ~/.hashcat/dictionaries:
-#     https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.larger.found.7z
-#     https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.small.found.7z
+# - Sync repo-provided directories (if present), non-destructive by default:
+#     ${REPO_DIR}/rules        ->  ~/.hashcat/rules
+#     ${REPO_DIR}/dictionaries ->  ~/.hashcat/dictionaries
+#     ${REPO_DIR}/tools        ->  ~/.hashcat/tools
+# - LAST STEP:
+#     1) Download (one-at-a-time) into ~/.hashcat/dictionaries:
+#        - hashmob.net_2026-02-15.larger.found.7z
+#        - hashmob.net_2026-02-15.small.found.7z
+#     2) Extract BOTH archives into ~/.hashcat/dictionaries after download
 # ============================================================
 
 ### --- CONFIG ---
@@ -83,10 +86,10 @@ install_packages() {
     git \
     wget \
     ca-certificates \
+    rsync \
     redis-tools \
     tmux \
-    supervisor \
-    less 
+    supervisor
 }
 
 ensure_user() {
@@ -119,14 +122,10 @@ make_dirs() {
 }
 
 link_compat_hashcat_home() {
-  # Make /home/ericgr3gory/.hashcat/* resolve to /home/hashcat/.hashcat/*
-  # so jobs with hard-coded /home/ericgr3gory paths work on rentals.
   log "Linking compatibility path: ${COMPAT_HASHCAT} -> ${HASHCAT_DOTDIR}"
 
   mkdir -p "${COMPAT_HOME}"
 
-  # If something already exists at /home/ericgr3gory/.hashcat and it's NOT a symlink,
-  # move it aside rather than deleting it.
   if [[ -e "${COMPAT_HASHCAT}" && ! -L "${COMPAT_HASHCAT}" ]]; then
     local ts
     ts="$(date +%Y%m%d_%H%M%S)"
@@ -134,11 +133,7 @@ link_compat_hashcat_home() {
     mv "${COMPAT_HASHCAT}" "${COMPAT_HASHCAT}.bak.${ts}"
   fi
 
-  # Create/replace symlink
   ln -sfn "${HASHCAT_DOTDIR}" "${COMPAT_HASHCAT}"
-
-  # Ownership of /home/ericgr3gory itself isn't critical for the symlink to work,
-  # but keep it sane:
   chown -R root:root "${COMPAT_HOME}" || true
 }
 
@@ -163,8 +158,6 @@ install_hashcat() {
 fix_hashcat_install_ownership() {
   log "Making ALL of ${HASHCAT_OPT_DIR} owned by ${WORKER_USER}:${WORKER_USER} ..."
   chown -R "${WORKER_USER}:${WORKER_USER}" "${HASHCAT_OPT_DIR}"
-
-  # Ensure directories are traversable and files readable; give user write everywhere.
   chmod -R u+rwX,go+rX "${HASHCAT_OPT_DIR}"
 }
 
@@ -177,6 +170,33 @@ clone_or_update_repo() {
     runuser -u "${WORKER_USER}" -- git clone "${REPO_URL}" "${REPO_DIR}"
   fi
   chown -R "${WORKER_USER}:${WORKER_USER}" "${REPO_DIR}"
+}
+
+sync_repo_rules_dicts_tools() {
+  log "Syncing repo rules/, dictionaries/, tools/ into ${HASHCAT_DOTDIR} ..."
+
+  mkdir -p "${HASHCAT_DOTDIR}/rules" "${HASHCAT_DOTDIR}/dictionaries" "${HASHCAT_DOTDIR}/tools"
+  chown -R "${WORKER_USER}:${WORKER_USER}" "${HASHCAT_DOTDIR}/rules" "${HASHCAT_DOTDIR}/dictionaries" "${HASHCAT_DOTDIR}/tools"
+
+  if [[ -d "${REPO_DIR}/rules" ]]; then
+    rsync -a --ignore-existing "${REPO_DIR}/rules/" "${HASHCAT_DOTDIR}/rules/"
+  else
+    warn "Repo has no rules/ directory at ${REPO_DIR}/rules"
+  fi
+
+  if [[ -d "${REPO_DIR}/dictionaries" ]]; then
+    rsync -a --ignore-existing "${REPO_DIR}/dictionaries/" "${HASHCAT_DOTDIR}/dictionaries/"
+  else
+    warn "Repo has no dictionaries/ directory at ${REPO_DIR}/dictionaries"
+  fi
+
+  if [[ -d "${REPO_DIR}/tools" ]]; then
+    rsync -a --ignore-existing "${REPO_DIR}/tools/" "${HASHCAT_DOTDIR}/tools/"
+  else
+    warn "Repo has no tools/ directory at ${REPO_DIR}/tools"
+  fi
+
+  chown -R "${WORKER_USER}:${WORKER_USER}" "${HASHCAT_DOTDIR}/rules" "${HASHCAT_DOTDIR}/dictionaries" "${HASHCAT_DOTDIR}/tools"
 }
 
 setup_venv() {
@@ -210,7 +230,7 @@ command=${VENV_DIR}/bin/python ${REPO_DIR}/gpu-consumer.py
 user=${WORKER_USER}
 
 ; CRITICAL: make ~ expand to /home/hashcat (not /root)
-environment=HOME="${WORKER_HOME}",USER="${WORKER_USER}",LOGNAME="${WORKER_USER}"
+environment=HOME="${WORKER_HOME}",USER="${WORKER_USER}",LOGNAME="${WORKER_USER}",PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 autostart=true
 autorestart=true
@@ -240,7 +260,7 @@ command=${VENV_DIR}/bin/python ${REPO_DIR}/redis_upload_feeder.py
 user=${WORKER_USER}
 
 ; CRITICAL: make ~ expand to /home/hashcat (not /root)
-environment=HOME="${WORKER_HOME}",USER="${WORKER_USER}",LOGNAME="${WORKER_USER}"
+environment=HOME="${WORKER_HOME}",USER="${WORKER_USER}",LOGNAME="${WORKER_USER}",PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 autostart=true
 autorestart=true
@@ -263,7 +283,6 @@ reload_supervisor() {
   supervisorctl reread
   supervisorctl update
 
-  # Restart both if present
   supervisorctl restart hashkitty-worker || true
   if [[ "${ENABLE_UPLOADER}" == "yes" ]]; then
     supervisorctl restart hashkitty-uploader || true
@@ -273,7 +292,7 @@ reload_supervisor() {
   supervisorctl status || true
 }
 
-download_hashmob_founds() {
+download_and_extract_hashmob_founds() {
   log "Downloading Hashmob founds archives (one at a time) into ${HASHCAT_DOTDIR}/dictionaries ..."
 
   local dst="${HASHCAT_DOTDIR}/dictionaries"
@@ -283,13 +302,47 @@ download_hashmob_founds() {
   local url1="https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.larger.found.7z"
   local url2="https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.small.found.7z"
 
-  # Download one at a time, resume if partial, keep timestamps
+  local f1="${dst}/hashmob.net_2026-02-15.larger.found.7z"
+  local f2="${dst}/hashmob.net_2026-02-15.small.found.7z"
+
+  # Download sequentially
   runuser -u "${WORKER_USER}" -- bash -lc "
     set -euo pipefail
     cd '${dst}'
     wget -c --timestamping '${url1}'
     wget -c --timestamping '${url2}'
   "
+
+  log "Extracting both Hashmob archives into ${dst} ..."
+
+  # Extract BOTH archives after downloads finish.
+  # - Uses -aos to skip overwriting existing files (safe for reruns)
+  # - Writes files into the dictionaries folder
+  runuser -u "${WORKER_USER}" -- bash -lc "
+    set -euo pipefail
+    cd '${dst}'
+
+    if [[ -f '${f1}' ]]; then
+      7z x -aos -y '${f1}' >/dev/null
+    else
+      echo '[!] Missing: ${f1}' >&2
+      exit 1
+    fi
+
+    if [[ -f '${f2}' ]]; then
+      7z x -aos -y '${f2}' >/dev/null
+    else
+      echo '[!] Missing: ${f2}' >&2
+      exit 1
+    fi
+  "
+
+  # Keep ownership correct (7z extracts as the running user anyway, but be explicit)
+  chown -R "${WORKER_USER}:${WORKER_USER}" "${dst}"
+
+  log "Hashmob download + extract complete."
+  echo "  Contents:"
+  ls -lah "${dst}" | sed -n '1,60p' || true
 }
 
 post_notes() {
@@ -327,14 +380,15 @@ main() {
   install_hashcat
   fix_hashcat_install_ownership
   clone_or_update_repo
+  sync_repo_rules_dicts_tools
   setup_venv
   write_supervisor_worker
   write_supervisor_uploader
   reload_supervisor
   post_notes
 
-  # LAST STEP: download hashmob archives sequentially into ~/.hashcat/dictionaries
-  download_hashmob_founds
+  # LAST STEP: download BOTH, then extract BOTH into ~/.hashcat/dictionaries
+  download_and_extract_hashmob_founds
 }
 
 main "$@"
