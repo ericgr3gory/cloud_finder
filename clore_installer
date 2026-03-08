@@ -89,6 +89,7 @@ install_packages() {
     rsync \
     redis-tools \
     tmux \
+    less\
     supervisor
 }
 
@@ -301,10 +302,9 @@ download_and_extract_dictionaries() {
 
   # ---- URLs (download sequentially) ----
   local urls=(
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.larger.found.7z"
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-02-15.small.found.7z"
-    "https://weakpass.com/download/2017/weakpass_4a.latin.txt.7z"
-    "https://weakpass.com/download/1927/cyclone.hashesorg.hashkiller.combined.txt.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-03-08.medium.found.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-03-08.larger.found.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-03-08.small.found.7z"
     "https://weakpass.com/download/2078/hashmob.net_2025.tiny.found.7z"
   )
 
