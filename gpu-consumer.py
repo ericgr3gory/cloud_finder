@@ -50,31 +50,92 @@ def check_file(filename):
     return False
 
 
+def to_absolute(p):
+    p = Path(p)
+    if p.is_absolute():
+        return str(p)
+    return str(Path.home() / p)
+
+
+def convert_job_cmd(job_cmd):
+    if job_cmd.get("restore"):
+        return [
+            "hashcat",
+            "--restore",
+            "--session",
+            job_cmd["session_id"],
+        ]
+
+    cmd = [
+        "hashcat",
+        "-m",
+        job_cmd["mode"],
+        "-a",
+        job_cmd["attack"],
+        "-w",
+        job_cmd["work_load"],
+    ]
+    if job_cmd["no_cuda"]:
+        cmd.append("--backend-ignore-cuda")
+    if not job_cmd["background_run"]:
+        cmd.extend(["--runtime", job_cmd["runtime"]])
+    if not job_cmd["background_run"]:
+        cmd.extend(["--runtime", job_cmd["runtime"]])
+    if job_cmd["optimized_kernel"]:
+        cmd.append("-O")
+    if job_cmd["slow"]:
+        cmd.append("-S")
+
+    cmd.extend(
+        [
+            "-o",
+            to_absolute(job_cmd["output_file"]),
+            "--potfile-path",
+            to_absolute(job_cmd["pot_file"]),
+            "--status",
+            "--status-timer=10",
+            "--session",
+            job_cmd["session_id"],
+            to_absolute(job_cmd["hashz"]),
+        ]
+    )
+    for wordlist in job_cmd["wordlists"]:
+        cmd.append(to_absolute(wordlist))
+    if job_cmd["rule"]:
+        cmd.extend(["-r", to_absolute(job_cmd["rule"])])
+    normalized_cmd = []
+    for c in cmd:
+        normalized_cmd.append(str(c))
+    return normalized_cmd
+
+
 def validate_job(job: dict) -> bool | None:
     """
-    job: {'job_id': str, 'algorithm_id': str, 'total_hashz': int, 'hashz': str, 'cmd': list[str]}
+    job: {'job_id': str, 'algorithm_id': int, 'total_hashz': int, 'hashz': str, 'cmd': dict}
     """
     if job is None:
         return False
+
     try:
         hashz = job["hashz"]
         hashcat_cmd = job["cmd"]
         job_id = job["job_id"]
         algo = job["algorithm_id"]
         total_hashz = job["total_hashz"]
+
     except KeyError as e:
         logger.error(f"error parsing job keys {e}")
         return False
-    """
-    if not hashz or not check_file(hashz):
+
+    if not hashz or not check_file(to_absolute(hashz)):
         logger.error(f"hashz or hashz file doesn't exsist: {hashz}")
         return False
-    """
-    if not isinstance(hashcat_cmd, (list, tuple)) or not hashcat_cmd:
+
+    if not isinstance(hashcat_cmd, dict) or not hashcat_cmd:
         logger.error(f"Job {job_id} has no command")
         return False
 
-    if not isinstance(algo, str):
+    if not isinstance(algo, int | str):
         logger.error(f"algo is not a str {algo}")
         return False
 
@@ -87,14 +148,13 @@ def validate_job(job: dict) -> bool | None:
 
 def get_crackin(job: dict) -> None | Popen:
     """
-    job: {'job_id': str, 'algorithm_id': str, 'total_hashz': int, 'hashz': str, 'cmd': list[str]}
+    job: {'job_id': str, 'algorithm_id': str, 'total_hashz': int, 'hashz': str, 'cmd': dict}
     """
-    hashcat_cmd = job["cmd"]
+    hashcat_cmd = convert_job_cmd(job["cmd"])
     job_id = job.get("job_id")
     algo = job.get("algorithm_id")
     total_hashz = job.get("total_hashz")
     log_path = str(LOG_DIR / f"hashcat.{job_id}.log")
-    # hashcat_cmd.insert(1, '--backend-ignore-cuda')
 
     try:
         with open(log_path, "a", buffering=1) as logf:
@@ -149,16 +209,23 @@ def term_process(process):
 
 
 def restore_command_parser(job):
-    cmd = job["cmd"]
-    new_cmd = []
-    for n, c in enumerate(cmd):
-        if "--session" in c:
-            new_cmd = ["hashcat", "--restore", "--session", cmd[n + 1]]
-            job["cmd"] = new_cmd
-            return job
+    job_cmd = job.get("cmd", {})
+    session_id = job_cmd.get("session_id")
 
-    logger.warning(f"restore job creation fialed {job}")
-    return None
+    if not session_id:
+        logger.warning(f"restore job creation failed {job}")
+        return None
+
+    return {
+        "job_id": job["job_id"],
+        "algorithm_id": job["algorithm_id"],
+        "total_hashz": job["total_hashz"],
+        "hashz": job["hashz"],
+        "cmd": {
+            "restore": True,
+            "session_id": session_id,
+        },
+    }
 
 
 def main():
@@ -191,7 +258,7 @@ def main():
         """
         check for new priority job
         """
-        """
+
         priority_job, redis_payload = r.pop_priority_job()
 
         if priority_job:
@@ -224,7 +291,7 @@ def main():
             if proc:
                 proc.wait()
                 r.remove_priorty_inflight(redis_payload)
-        """
+
         """
         restore job from reedis if no priority and no current restore and no background jobs are running
         """
@@ -259,7 +326,6 @@ def main():
                             "background": True,
                             "redis_payload": redis_payload,
                         }
-            sleep(0.25)
 
     logger.info("Shutting down cleanly.")
 
