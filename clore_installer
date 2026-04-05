@@ -41,10 +41,6 @@ WORKER_USER="hashcat"
 WORKER_HOME="/home/${WORKER_USER}"
 HASHCAT_DOTDIR="${WORKER_HOME}/.hashcat"
 
-# Compatibility user home expected by some jobs
-COMPAT_USER="ericgr3gory"
-COMPAT_HOME="/home/${COMPAT_USER}"
-COMPAT_HASHCAT="${COMPAT_HOME}/.hashcat"
 
 REPO_URL="https://github.com/ericgr3gory/cloud_finder.git"
 REPO_DIR="${WORKER_HOME}/cloud_finder"
@@ -122,21 +118,6 @@ make_dirs() {
   chown -R "${WORKER_USER}:${WORKER_USER}" "${WORKER_HOME}"
 }
 
-link_compat_hashcat_home() {
-  log "Linking compatibility path: ${COMPAT_HASHCAT} -> ${HASHCAT_DOTDIR}"
-
-  mkdir -p "${COMPAT_HOME}"
-
-  if [[ -e "${COMPAT_HASHCAT}" && ! -L "${COMPAT_HASHCAT}" ]]; then
-    local ts
-    ts="$(date +%Y%m%d_%H%M%S)"
-    warn "${COMPAT_HASHCAT} exists and is not a symlink. Moving to ${COMPAT_HASHCAT}.bak.${ts}"
-    mv "${COMPAT_HASHCAT}" "${COMPAT_HASHCAT}.bak.${ts}"
-  fi
-
-  ln -sfn "${HASHCAT_DOTDIR}" "${COMPAT_HASHCAT}"
-  chown -R root:root "${COMPAT_HOME}" || true
-}
 
 install_hashcat() {
   log "Downloading Hashcat ${HASHCAT_VER}..."
@@ -302,10 +283,10 @@ download_and_extract_dictionaries() {
 
   # ---- URLs (download sequentially) ----
   local urls=(
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-03-08.medium.found.7z"
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-03-08.larger.found.7z"
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-03-08.small.found.7z"
-    "https://weakpass.com/download/2078/hashmob.net_2025.tiny.found.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-05.medium.found.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-05.larger.found.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-05.small.found.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-05.tiny.found.7z"
   )
 
   # ---- Download one-at-a-time ----
@@ -356,9 +337,6 @@ post_notes() {
   echo "  ls -ld ${HASHCAT_OPT_DIR}"
   echo "  sudo -u ${WORKER_USER} test -w ${HASHCAT_OPT_DIR}/kernels && echo 'hashcat can write kernels ✅'"
   echo
-  echo "Compat symlink sanity:"
-  echo "  ls -la ${COMPAT_HOME}"
-  echo "  ls -la ${COMPAT_HASHCAT}"
   echo
   echo "Logs:"
   echo "  tail -f ${HASHCAT_DOTDIR}/logs/worker.out"
@@ -374,7 +352,6 @@ main() {
   install_packages
   ensure_user
   make_dirs
-  link_compat_hashcat_home
   install_hashcat
   fix_hashcat_install_ownership
   clone_or_update_repo

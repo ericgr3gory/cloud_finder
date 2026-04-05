@@ -259,8 +259,8 @@ def main():
         check for new priority job
         """
 
-        priority_job, redis_payload = r.pop_priority_job()
-
+        priority_job = None
+        redis_payload = None
         if priority_job:
             if not validate_job(priority_job):
                 r.remove_priorty_inflight(redis_payload)
