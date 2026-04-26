@@ -287,6 +287,10 @@ download_and_extract_dictionaries() {
     "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-26.larger.found.7z"
     "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-26.small.found.7z"
     "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-26.tiny.found.7z"
+    "https://weakpass.com/download/2093/triple-h.txt.7z"
+    "https://weakpass.com/download/1256/hk_hlm_founds.txt.gz"
+    "https://weakpass.com/download/2017/weakpass_4a.latin.txt.7z"
+
   )
 
   # ---- Download one-at-a-time ----
