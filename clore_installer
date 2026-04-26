@@ -283,10 +283,10 @@ download_and_extract_dictionaries() {
 
   # ---- URLs (download sequentially) ----
   local urls=(
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-05.medium.found.7z"
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-05.larger.found.7z"
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-05.small.found.7z"
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-05.tiny.found.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-26.medium.found.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-26.larger.found.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-26.small.found.7z"
+    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-26.tiny.found.7z"
   )
 
   # ---- Download one-at-a-time ----
