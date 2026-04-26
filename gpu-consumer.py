@@ -79,8 +79,6 @@ def convert_job_cmd(job_cmd):
         cmd.append("--backend-ignore-cuda")
     if not job_cmd["background_run"]:
         cmd.extend(["--runtime", job_cmd["runtime"]])
-    if not job_cmd["background_run"]:
-        cmd.extend(["--runtime", job_cmd["runtime"]])
     if job_cmd["optimized_kernel"]:
         cmd.append("-O")
     if job_cmd["slow"]:
@@ -259,8 +257,9 @@ def main():
         check for new priority job
         """
 
-        priority_job = None
-        redis_payload = None
+        # priority_job, redis_payload = r.pop_priority_job()
+        # kill proirty jobs in cloud
+        priority_job, redis_payload = None, None
         if priority_job:
             if not validate_job(priority_job):
                 r.remove_priorty_inflight(redis_payload)

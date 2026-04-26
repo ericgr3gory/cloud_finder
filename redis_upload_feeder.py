@@ -16,7 +16,6 @@ from redis.exceptions import RedisError, ConnectionError
 
 load_dotenv()
 
-API_KEY = os.getenv("HASHES_API_KEY")
 POTS_DIR = Path("~/.hashcat/pots").expanduser()
 POTS_DIR.mkdir(parents=True, exist_ok=True)
 FOUNDS_PATH = Path("~/.hashcat/cracked").expanduser()
@@ -100,8 +99,8 @@ def write_to_file(founds: set):
             f.write(found + "\n")
 
 
-def check_for_founds(file_name, uploaded_hashes):
-
+def check_for_founds(file_name, uploaded_hashes: dict, algorithm: str):
+    uploaded_founds = set()
     found_file = str(FOUNDS_PATH / file_name)
 
     try:
@@ -109,9 +108,24 @@ def check_for_founds(file_name, uploaded_hashes):
 
     except FileNotFoundError as e:
         logger.error(e)
-        return False
+        return set()
 
-    return found_hashes - uploaded_hashes
+    for founds_data in uploaded_hashes.values():
+        uploaded_founds.update(founds_data.get("founds", []))
+
+    return found_hashes - uploaded_founds
+
+
+def expire_uploads(already_uploaded_founds: dict):
+    now = time.time()
+    expired_keys = []
+    for key in already_uploaded_founds:
+        elapsed_time = now - key
+        if elapsed_time > 28800:
+            expired_keys.append(key)
+    for key in expired_keys:
+        already_uploaded_founds.pop(key)
+    return already_uploaded_founds
 
 
 def get_algo(file):
@@ -124,7 +138,8 @@ watch_flags = flags.CLOSE_WRITE
 wd = inotify.add_watch(str(FOUNDS_PATH), watch_flags)
 
 logger.info(f"Monitoring {FOUNDS_PATH} started...")
-already_uploaded_hashes = set()
+already_uploaded_hashes: dict = {}
+time_stamped_founds: dict = {}
 r = connect_redis()
 
 while True:
@@ -137,7 +152,10 @@ while True:
         logger.info(f"Event: CLOSE_WRITE on {event.name}")
 
         algorithm = get_algo(event.name)
-        new_founds = check_for_founds(event.name, already_uploaded_hashes)
+        if already_uploaded_hashes:
+            # TODO chage to set subtraction instead of rebuliding set for expiring
+            already_uploaded_hashes = expire_uploads(already_uploaded_hashes)
+        new_founds = check_for_founds(event.name, already_uploaded_hashes, algorithm)
         if new_founds:
             founds_data = {
                 "algorithm": algorithm,
@@ -150,7 +168,9 @@ while True:
             push_founds = push_to_redis(r, founds_data)
             push_status, r = push_founds
             if push_status:
-                already_uploaded_hashes.update(new_founds)
+
+                already_uploaded_hashes[founds_data["ts"]] = founds_data
+
                 count = len(new_founds)
                 logger.info(
                     f"{event.name} {algorithm} pushed to redis ({count} cracks)"
