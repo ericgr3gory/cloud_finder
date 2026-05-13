@@ -251,7 +251,7 @@ reload_supervisor() {
   supervisorctl reread
   supervisorctl update
 
-  supervisorctl restart hashkitty-worker || true
+  
   if [[ "${ENABLE_UPLOADER}" == "yes" ]]; then
     supervisorctl restart hashkitty-uploader || true
   fi
