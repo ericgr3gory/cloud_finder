@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 
 DICT_DIR = Path("~/.hashcat/dictionaries").expanduser()
-OUTPUT_FILE = Path("~/python-hashes/wordlists.json").expanduser()
+OUTPUT_FILE = Path("~/.hashcat/wordlists.json").expanduser()
 
 
 def make_id(file_path: Path) -> str:
