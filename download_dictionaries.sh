@@ -9,6 +9,7 @@ mkdir -p "$DEST_DIR"
 chown -R "${WORKER_USER}:${WORKER_USER}" "${WORKER_HOME}/.hashcat/dictionaries"
 
 URLS=(
+  "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-05-10.found.7z"  
   "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-05-10.medium.found.7z"
   "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-05-10.larger.found.7z"
   "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-05-10.small.found.7z"
