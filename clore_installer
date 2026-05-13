@@ -86,7 +86,10 @@ install_packages() {
     redis-tools \
     tmux \
     less \
-    supervisor
+    supervisor \
+    curl \
+    wc \
+    split \
 }
 
 ensure_user() {
@@ -274,64 +277,20 @@ reload_supervisor() {
   supervisorctl status || true
 }
 
-download_and_extract_dictionaries() {
-  log "Downloading + extracting dictionary archives into ${HASHCAT_DOTDIR}/dictionaries ..."
+install_dictionaries() {
+    local script="${REPO_DIR}/download_dictionaries.sh"
 
-  local dst="${HASHCAT_DOTDIR}/dictionaries"
-  mkdir -p "${dst}"
-  chown -R "${WORKER_USER}:${WORKER_USER}" "${dst}"
-
-  # ---- URLs (download sequentially) ----
-  local urls=(
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-26.medium.found.7z"
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-26.larger.found.7z"
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-26.small.found.7z"
-    "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-04-26.tiny.found.7z"
-    "https://weakpass.com/download/2093/triple-h.txt.7z"
-    "https://weakpass.com/download/1256/hk_hlm_founds.txt.gz"
-    "https://weakpass.com/download/2017/weakpass_4a.latin.txt.7z"
-
-  )
-
-  # ---- Download one-at-a-time ----
-  runuser -u "${WORKER_USER}" -- bash -lc "
-    set -euo pipefail
-    cd '${dst}'
-    for u in ${urls[*]@Q}; do
-      echo \"[+] wget: \$u\"
-      wget -c --timestamping --content-disposition \"\$u\"
-    done
-  "
-
-  log "Extracting archives (skip overwrites) into ${dst} ..."
-
-  # ---- Extract AFTER all downloads ----
-  runuser -u "${WORKER_USER}" -- bash -lc "
-    set -euo pipefail
-    cd '${dst}'
-    shopt -s nullglob
-
-    archives=( *.7z )
-    if (( \${#archives[@]} == 0 )); then
-      echo '[!] No .7z archives found to extract' >&2
-      exit 1
+    if [[ ! -f "$script" ]]; then
+        echo "[ERROR] dictionary installer missing: $script"
+        exit 1
     fi
 
-    for f in \"\${archives[@]}\"; do
-      echo \"[+] 7z x: \$f\"
-      7z x -aos -y \"\$f\" >/dev/null
-    done
+    chmod +x "$script"
 
-    gzfiles=( *.gz )
-    
-    for f in "${gzfiles[@]}"; do
-      echo "[+] gunzip: $f"
-      gunzip -kf "$f"
-    done
-  "
-
-  chown -R "${WORKER_USER}:${WORKER_USER}" "${dst}"
-  log "Dictionary download + extract complete."
+    if ! "$script"; then
+        echo "[ERROR] dictionary install failed"
+        exit 1
+    fi
 }
 
 install_shell() {
@@ -389,10 +348,9 @@ main() {
   write_supervisor_worker
   write_supervisor_uploader
   reload_supervisor
+  install_dictionaries
   post_notes
 
-  # LAST STEP: download BOTH, then extract BOTH into ~/.hashcat/dictionaries
-  download_and_extract_dictionaries
 
 }
 
