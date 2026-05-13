@@ -6,7 +6,6 @@ from pathlib import Path
 from redis_connection import RedisConnection
 from time import sleep
 
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -60,4 +59,4 @@ def main():
 
 
 if __name__ == "__main__":
-    pass
+    main()
