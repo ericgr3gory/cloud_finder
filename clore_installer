@@ -47,7 +47,6 @@ REPO_DIR="${WORKER_HOME}/cloud_finder"
 VENV_DIR="${REPO_DIR}/.venv"
 REQ_FILE="${REPO_DIR}/requirments.txt"  # keep your spelling
 
-SUP_CONF_WORKER="/etc/supervisor/conf.d/hashkitty-worker.conf"
 SUP_CONF_UPLOADER="/etc/supervisor/conf.d/hashkitty-uploader.conf"
 
 # Toggle uploader feeder
@@ -251,14 +250,15 @@ reload_supervisor() {
   supervisorctl reread
   supervisorctl update
 
-  
+  supervisorctl restart hashkitty-downloader || true
+
   if [[ "${ENABLE_UPLOADER}" == "yes" ]]; then
     supervisorctl restart hashkitty-uploader || true
   fi
 
-  log "Supervisor status:"
   supervisorctl status || true
 }
+
 
 install_dictionaries() {
     local script="${REPO_DIR}/download_dictionaries.sh"
@@ -294,6 +294,34 @@ install_shell() {
     fi
 }
 
+write_supervisor_downloader() {
+  log "Writing Supervisor program: hashkitty-downloader (cloud_downloader.py)"
+
+  cat > "/etc/supervisor/conf.d/hashkitty-downloader.conf" <<EOF
+[program:hashkitty-downloader]
+directory=${REPO_DIR}
+command=${VENV_DIR}/bin/python ${REPO_DIR}/cloud_downloader.py
+user=${WORKER_USER}
+
+environment=HOME="${WORKER_HOME}",USER="${WORKER_USER}",LOGNAME="${WORKER_USER}",PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+autostart=true
+autorestart=true
+startsecs=5
+startretries=999
+stopsignal=TERM
+stopasgroup=true
+killasgroup=true
+
+stdout_logfile=${HASHCAT_DOTDIR}/logs/downloader.out
+stderr_logfile=${HASHCAT_DOTDIR}/logs/downloader.err
+stdout_logfile_maxbytes=20MB
+stdout_logfile_backups=5
+stderr_logfile_maxbytes=20MB
+stderr_logfile_backups=5
+EOF
+}
+
 post_notes() {
   log "Done. Quick checks:"
   echo "  nvidia-smi"
@@ -308,9 +336,9 @@ post_notes() {
   echo "  sudo -u ${WORKER_USER} test -w ${HASHCAT_OPT_DIR}/kernels && echo 'hashcat can write kernels ✅'"
   echo
   echo
-  echo "Logs:"
-  echo "  tail -f ${HASHCAT_DOTDIR}/logs/worker.out"
-  echo "  tail -f ${HASHCAT_DOTDIR}/logs/worker.err"
+  echo "  tail -f ${HASHCAT_DOTDIR}/logs/downloader.out"
+  echo "  tail -f ${HASHCAT_DOTDIR}/logs/downloader.err"
+  echo "  ls ${HASHCAT_DOTDIR}/logs/hashkitty-gpu-*"
   if [[ "${ENABLE_UPLOADER}" == "yes" ]]; then
     echo "  tail -f ${HASHCAT_DOTDIR}/logs/uploader.out"
     echo "  tail -f ${HASHCAT_DOTDIR}/logs/uploader.err"
@@ -329,6 +357,7 @@ main() {
   sync_repo_rules_dicts_tools
   setup_venv
   write_supervisor_uploader
+  write_supervisor_downloader
   setup_gpu_consumers
   reload_supervisor
   install_dictionaries
