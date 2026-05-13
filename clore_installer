@@ -85,7 +85,7 @@ install_packages() {
     rsync \
     redis-tools \
     tmux \
-    less\
+    less \
     supervisor
 }
 
@@ -321,12 +321,36 @@ download_and_extract_dictionaries() {
       echo \"[+] 7z x: \$f\"
       7z x -aos -y \"\$f\" >/dev/null
     done
+
+    gzfiles=( *.gz )
+    
+    for f in "${gzfiles[@]}"; do
+      echo "[+] gunzip: $f"
+      gunzip -kf "$f"
+    done
   "
 
   chown -R "${WORKER_USER}:${WORKER_USER}" "${dst}"
   log "Dictionary download + extract complete."
 }
 
+install_shell() {
+    local script="${REPO_DIR}/install-ohmyzsh-root.sh"
+
+    if [[ ! -f "$script" ]]; then
+        echo "[warn] shell installer not found: $script"
+        return 0
+    fi
+
+    if [[ ! -x "$script" ]]; then
+        chmod +x "$script"
+    fi
+
+    if ! "$script" "${WORKER_USER}"; then
+        echo "[warn] shell customization failed; continuing"
+        return 0
+    fi
+}
 
 post_notes() {
   log "Done. Quick checks:"
@@ -359,6 +383,7 @@ main() {
   install_hashcat
   fix_hashcat_install_ownership
   clone_or_update_repo
+  install_shell
   sync_repo_rules_dicts_tools
   setup_venv
   write_supervisor_worker
