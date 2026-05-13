@@ -87,9 +87,7 @@ install_packages() {
     tmux \
     less \
     supervisor \
-    curl \
-    wc \
-    split 
+    curl 
 }
 
 ensure_user() {
