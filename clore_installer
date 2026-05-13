@@ -202,35 +202,20 @@ setup_venv() {
   fi
 }
 
-write_supervisor_worker() {
-  log "Writing Supervisor program: hashkitty-worker (gpu-consumer.py)"
+setup_gpu_consumers() {
+    local script="${REPO_DIR}/create_gpu_supervisors.sh"
 
-  mkdir -p "${HASHCAT_DOTDIR}/logs"
-  chown -R "${WORKER_USER}:${WORKER_USER}" "${HASHCAT_DOTDIR}"
+    if [[ ! -f "$script" ]]; then
+        echo "[ERROR] GPU supervisor generator missing: $script"
+        exit 1
+    fi
 
-  cat > "${SUP_CONF_WORKER}" <<EOF
-[program:hashkitty-worker]
-directory=${REPO_DIR}
-command=${VENV_DIR}/bin/python ${REPO_DIR}/gpu-consumer.py
-user=${WORKER_USER}
+    chmod +x "$script"
 
-; CRITICAL: make ~ expand to /home/hashcat (not /root)
-environment=HOME="${WORKER_HOME}",USER="${WORKER_USER}",LOGNAME="${WORKER_USER}",PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
-autostart=true
-autorestart=true
-startretries=999
-stopsignal=TERM
-stopasgroup=true
-killasgroup=true
-
-stdout_logfile=${HASHCAT_DOTDIR}/logs/worker.out
-stderr_logfile=${HASHCAT_DOTDIR}/logs/worker.err
-stdout_logfile_maxbytes=20MB
-stdout_logfile_backups=5
-stderr_logfile_maxbytes=20MB
-stderr_logfile_backups=5
-EOF
+    if ! "$script"; then
+        echo "[ERROR] Failed to create GPU supervisor configs"
+        exit 1
+    fi
 }
 
 write_supervisor_uploader() {
@@ -345,8 +330,8 @@ main() {
   install_shell
   sync_repo_rules_dicts_tools
   setup_venv
-  write_supervisor_worker
   write_supervisor_uploader
+  setup_gpu_consumers
   reload_supervisor
   install_dictionaries
   post_notes
