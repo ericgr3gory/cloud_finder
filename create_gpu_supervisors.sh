@@ -3,7 +3,7 @@ set -euo pipefail
 
 WORKER_USER="hashcat"
 WORKER_HOME="/home/${WORKER_USER}"
-REPO_DIR="${WORKER_HOME}/python-hashes"
+REPO_DIR="${WORKER_HOME}/cloud_finder"
 SUPERVISOR_DIR="/etc/supervisor/conf.d"
 LOG_DIR="${WORKER_HOME}/.hashcat/logs"
 
