@@ -89,7 +89,7 @@ install_packages() {
     supervisor \
     curl \
     wc \
-    split \
+    split 
 }
 
 ensure_user() {
