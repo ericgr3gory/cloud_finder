@@ -17,6 +17,13 @@ HASH_DIR = Path("~/.hashcat/hashz").expanduser()
 HASH_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def to_absolute(p):
+    p = Path(p)
+    if p.is_absolute():
+        return str(p)
+    return str(Path.home() / p)
+
+
 def dl_hashz(data) -> str | None:
     job = json.loads(data)
     algorithm_id = str(job.get("algorithmId"))
@@ -46,15 +53,42 @@ def dl_hashz(data) -> str | None:
     return str(unfounds_file)
 
 
+def write_blob(job):
+    file_name = job.get("hashz")
+    file_name = to_absolute(file_name)
+    blob = job.get("blob")
+    Path(file_name).write_text(blob, encoding="utf-8")
+
+
+def parse_download(job_data):
+    job = json.loads(job_data)
+    if not job.get("blob"):
+        dl_hashz(job_data)
+    else:
+        write_blob(job)
+
+
 def main():
     r = RedisConnection()
-    last_dl = None
+    previous_download = None
 
     while True:
-        download = r.get_dowload_url()
-        if download and download != last_dl:
-            dl_hashz(download)
-            last_dl = download
+        latest_download = r.get_latest_download()
+
+        if not latest_download:
+            sleep(0.2)
+            continue
+
+        if latest_download == previous_download:
+            sleep(0.2)
+            continue
+
+        download = r.get_dowload_url(latest_download)
+
+        if download:
+            parse_download(download)
+            previous_download = latest_download
+
         sleep(0.2)
 
 

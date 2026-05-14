@@ -26,6 +26,7 @@ class RedisConnection:
         )
         self.queue_key_restore = "hashkitty:jobs_restore"
         self.queue_key_restore_inflight = "hashkitty:jobs_restore_inflight"
+        self.queue_key_latest_download = "hashkitty:latest_download"
         self.queue_key_download_hashz = "hashkitty:jobs_dl"
         self.r = self.connect_to_redis()
 
@@ -129,6 +130,23 @@ class RedisConnection:
         else:
             return False
 
+    def _set_job_id(self, q_key, message):
+        try:
+            self.r.set(q_key, message)
+            return True
+        except (ConnectionError, RedisError) as e:
+            logger.warning(f"Redis set failure {e}")
+            self.r = self.connect_to_redis()
+            return None
+
+    def _get_job_id(self, q_key):
+        try:
+            id = self.r.get(q_key)
+            return id
+        except (ConnectionError, RedisError) as e:
+            logger.warning(f"Redis set failure {e}")
+            self.r = self.connect_to_redis()
+
     def _set_url(self, q_key, message):
         try:
             self.r.set(q_key, message, ex=10)
@@ -176,11 +194,20 @@ class RedisConnection:
         payload = json.dumps(job, ensure_ascii=False, separators=(",", ":"))
         return self._lpush(self.queue_key, payload)
 
-    def set_download_url(self, url):
-        return self._set_url(self.queue_key_download_hashz, url)
+    def set_download_url(self, job_id, job):
+        q_key = f"{self.queue_key_download_hashz}:{job_id}"
+        return self._set_url(q_key, job)
 
-    def get_dowload_url(self):
-        return self._get_url(self.queue_key_download_hashz)
+    def get_dowload_url(self, job_id):
+        q_key = f"{self.queue_key_download_hashz}:{job_id}"
+        return self._get_url(q_key)
+
+    def set_latest_download(self, job_id, job):
+        self.set_download_url(job_id, job)
+        return self._set_job_id(self.queue_key_latest_download, job_id)
+
+    def get_latest_download(self):
+        return self._get_job_id(self.queue_key_latest_download)
 
 
 if __name__ == "__main__":
