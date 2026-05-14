@@ -149,7 +149,7 @@ class RedisConnection:
 
     def _set_url(self, q_key, message):
         try:
-            self.r.set(q_key, message, ex=10)
+            self.r.set(q_key, message, ex=1800)
             return True
         except (ConnectionError, RedisError) as e:
             logger.warning(f"Redis set failure {e}")
