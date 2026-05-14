@@ -13,7 +13,6 @@ import json
 import socket
 from redis.exceptions import RedisError, ConnectionError
 
-
 load_dotenv()
 
 POTS_DIR = Path("~/.hashcat/pots").expanduser()

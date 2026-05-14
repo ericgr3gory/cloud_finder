@@ -6,7 +6,6 @@ from time import sleep
 from redis.exceptions import RedisError, ConnectionError
 import json
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -21,6 +20,10 @@ class RedisConnection:
         self.queue_key_inflight = "hashkitty:jobs_inflight"
         self.queue_key_background = "hashkitty:jobs_background"
         self.queue_key_background_inflight = "hashkitty:jobs_background_inflight"
+        self.queue_key_background_local = "hashkitty:jobs_background_local"
+        self.queue_key_background_inflight_local = (
+            "hashkitty:jobs_background_inflight_local"
+        )
         self.queue_key_restore = "hashkitty:jobs_restore"
         self.queue_key_restore_inflight = "hashkitty:jobs_restore_inflight"
         self.queue_key_download_hashz = "hashkitty:jobs_dl"
@@ -70,14 +73,21 @@ class RedisConnection:
             return None
 
     def pop_priority_job(self):
-        if item := self._blmove(self.queue_key, self.queue_key_inflight, 3):
+        if item := self._blmove(self.queue_key, self.queue_key_inflight, 5.0):
             return self._decode_job(item), item
 
         return None, None
 
     def pop_background_job(self, box):
         inflight_key = f"{self.queue_key_background_inflight}:{box}"
-        if item := self._blmove(self.queue_key_background, inflight_key, 0.1):
+        if item := self._blmove(self.queue_key_background, inflight_key, 0.005):
+            return self._decode_job(item), item
+
+        return None, None
+
+    def pop_background_job_local(self, box):
+        inflight_key = f"{self.queue_key_background_inflight_local}:{box}"
+        if item := self._blmove(self.queue_key_background_local, inflight_key, 0.005):
             return self._decode_job(item), item
 
         return None, None
@@ -85,7 +95,7 @@ class RedisConnection:
     def pop_restore_job(self, box):
         restore_key = f"{self.queue_key_restore}:{box}"
         inflight_key = f"{self.queue_key_restore_inflight}:{box}"
-        if item := self._blmove(restore_key, inflight_key, 0.1):
+        if item := self._blmove(restore_key, inflight_key, 0.005):
             return self._decode_job(item), item
 
         return None, None
@@ -142,6 +152,10 @@ class RedisConnection:
 
     def remove_background_inflight(self, box, payload):
         inflight_queue = f"{self.queue_key_background_inflight}:{box}"
+        return self._lrem(inflight_queue, payload)
+
+    def remove_background_inflight_local(self, box, payload):
+        inflight_queue = f"{self.queue_key_background_inflight_local}:{box}"
         return self._lrem(inflight_queue, payload)
 
     def remove_restore_inflight(self, box, payload):

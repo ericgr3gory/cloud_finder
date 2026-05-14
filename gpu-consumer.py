@@ -206,6 +206,12 @@ def term_process(process):
     return kill_process(process)
 
 
+def _check_restore_path(session_id):
+    working_dir = Path("/opt/hashcat-7.1.1")
+    restore_file = working_dir / f"{session_id}.restore"
+    return restore_file.exists()
+
+
 def restore_command_parser(job):
     job_cmd = job.get("cmd", {})
     session_id = job_cmd.get("session_id")
@@ -213,17 +219,19 @@ def restore_command_parser(job):
     if not session_id:
         logger.warning(f"restore job creation failed {job}")
         return None
-
-    return {
-        "job_id": job["job_id"],
-        "algorithm_id": job["algorithm_id"],
-        "total_hashz": job["total_hashz"],
-        "hashz": job["hashz"],
-        "cmd": {
-            "restore": True,
-            "session_id": session_id,
-        },
-    }
+    if _check_restore_path(session_id):
+        return {
+            "job_id": job["job_id"],
+            "algorithm_id": job["algorithm_id"],
+            "total_hashz": job["total_hashz"],
+            "hashz": job["hashz"],
+            "cmd": {
+                "restore": True,
+                "session_id": session_id,
+            },
+        }
+    else:
+        return job
 
 
 def main():
@@ -244,7 +252,7 @@ def main():
             proc = None
             if running_job:
                 if running_job.get("background"):
-                    r.remove_background_inflight(
+                    r.remove_background_inflight_local(
                         HOST_NAME, running_job.get("redis_payload")
                     )
                 if running_job.get("restore"):
@@ -257,9 +265,8 @@ def main():
         check for new priority job
         """
 
-        # priority_job, redis_payload = r.pop_priority_job()
-        # kill proirty jobs in cloud
-        priority_job, redis_payload = None, None
+        priority_job, redis_payload = r.pop_priority_job()
+
         if priority_job:
             if not validate_job(priority_job):
                 r.remove_priorty_inflight(redis_payload)
@@ -270,7 +277,7 @@ def main():
 
             if running_job:
                 if running_job.get("background"):
-                    r.remove_background_inflight(
+                    r.remove_background_inflight_local(
                         HOST_NAME, running_job["redis_payload"]
                     )
                 if running_job.get("restore"):
@@ -312,11 +319,11 @@ def main():
             start a job on background queue if nothing is running and restore list is empty
             """
             if not restore_job:
-                background_job, redis_payload = r.pop_background_job(HOST_NAME)
+                background_job, redis_payload = r.pop_background_job_local(HOST_NAME)
 
                 if background_job:
                     if not validate_job(background_job):
-                        r.remove_background_inflight(HOST_NAME, redis_payload)
+                        r.remove_background_inflight_local(HOST_NAME, redis_payload)
                         continue
                     proc = get_crackin(background_job)
                     if proc:
