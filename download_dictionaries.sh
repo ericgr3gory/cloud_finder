@@ -6,10 +6,10 @@ WORKER_HOME="/home/${WORKER_USER}"
 DEST_DIR="${WORKER_HOME}/.hashcat/dictionaries"
 
 mkdir -p "$DEST_DIR"
-chown -R "${WORKER_USER}:${WORKER_USER}" "${WORKER_HOME}/.hashcat/dictionaries"
+chown -R "${WORKER_USER}:${WORKER_USER}" "$DEST_DIR"
 
 URLS=(
-  "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-05-10.found.7z"  
+  "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-05-10.found.7z"
   "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-05-10.medium.found.7z"
   "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-05-10.larger.found.7z"
   "https://hashmob.net/api/v2/downloads/research/official/hashmob.net_2026-05-10.small.found.7z"
@@ -34,6 +34,24 @@ require_cmd 7z
 require_cmd gunzip
 require_cmd split
 require_cmd wc
+require_cmd sed
+require_cmd find
+require_cmd grep
+
+rename_hashmob_files() {
+    cd "$DEST_DIR"
+
+    for f in hashmob.net_20*.found; do
+        [[ -e "$f" ]] || continue
+
+        new="$(echo "$f" | sed -E 's/^hashmob\.net_[0-9]{4}-[0-9]{2}-[0-9]{2}/hashmob/')"
+
+        if [[ "$f" != "$new" ]]; then
+            echo "[RENAME] $f -> $new"
+            mv -f "$f" "$new"
+        fi
+    done
+}
 
 split_file_four() {
     local file="$1"
@@ -58,6 +76,8 @@ split_file_four() {
     local stem="${base%.*}"
     local ext=""
     [[ "$base" == *.* ]] && ext=".${base##*.}"
+
+    rm -f "${dir}/${stem}_"*"$ext" 2>/dev/null || true
 
     echo "[SPLIT] $base into 4 parts"
 
@@ -91,9 +111,21 @@ extract_and_process() {
             echo "[DELETE] $(basename "$archive")"
             rm -f "$archive"
 
+            rename_hashmob_files
+
             while read -r extracted; do
                 grep -qxF "$extracted" "$before" && continue
+
+                local current
+                current="$(basename "$extracted")"
+
+                if [[ "$current" =~ ^hashmob\.net_ ]]; then
+                    current="$(echo "$current" | sed -E 's/^hashmob\.net_[0-9]{4}-[0-9]{2}-[0-9]{2}/hashmob/')"
+                    extracted="${DEST_DIR}/${current}"
+                fi
+
                 split_file_four "$extracted"
+
             done < <(find "$DEST_DIR" -maxdepth 1 -type f)
 
             rm -f "$before"
@@ -138,5 +170,7 @@ for url in "${URLS[@]}"; do
     extract_and_process "$archive"
     echo
 done
+
+chown -R "${WORKER_USER}:${WORKER_USER}" "$DEST_DIR"
 
 echo "Done."
