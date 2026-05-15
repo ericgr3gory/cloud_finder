@@ -144,10 +144,53 @@ def validate_job(job: dict) -> bool | None:
     return True
 
 
+def get_pipe_crackin(job: dict) -> None | Popen:
+    job_id = job.get("job_id")
+    algo = job.get("algorithm_id")
+    total_hashz = job.get("total_hashz")
+    log_path = str(LOG_DIR / f"hashcat.{job_id}.log")
+    hashcat_cmd = job["cmd"].get("command")
+
+    if not hashcat_cmd:
+        logger.error("No shell command for job %s", job_id)
+        return None
+
+    try:
+        with open(log_path, "a", buffering=1) as logf:
+            proc = subprocess.Popen(
+                ["bash", "-c", hashcat_cmd],
+                stdout=logf,
+                stderr=logf,
+                text=True,
+                start_new_session=True,
+            )
+    except Exception as e:
+        logger.exception("Failed to launch hashcat for job %s: %s", job_id, e)
+        return None
+
+    msg_parts = [
+        "Launched",
+        f"Job: {job_id}",
+        f"Algo: {algo}",
+        f"Total hashz: {total_hashz}",
+        f"Pid: {proc.pid}",
+        f"Log: {log_path}",
+        f"Command: {hashcat_cmd}",
+    ]
+    msg = "\n".join(msg_parts)
+    logger.info(msg)
+
+    return proc
+
+
 def get_crackin(job: dict) -> None | Popen:
     """
     job: {'job_id': str, 'algorithm_id': str, 'total_hashz': int, 'hashz': str, 'cmd': dict}
     """
+
+    if job["cmd"].get("pipe"):
+        return get_pipe_crackin(job)
+
     hashcat_cmd = convert_job_cmd(job["cmd"])
     job_id = job.get("job_id")
     algo = job.get("algorithm_id")
@@ -280,12 +323,16 @@ def main():
                     r.remove_background_inflight_local(
                         HOST_NAME, running_job["redis_payload"]
                     )
+
+                    if running_job["job"]["cmd"].get("pipe"):
+                        r.send_job_to_background(running_job["job"], HOST_NAME)
+                    else:
+                        job_restore_command = restore_command_parser(running_job["job"])
+                        if job_restore_command:
+                            r.send_job_to_restore(job_restore_command, HOST_NAME)
+
                 if running_job.get("restore"):
                     r.remove_restore_inflight(HOST_NAME, running_job["redis_payload"])
-
-                job_restore_command = restore_command_parser(running_job.get("job"))
-                if job_restore_command:
-                    r.send_job_to_restore(job_restore_command, HOST_NAME)
 
             proc = get_crackin(priority_job)
             if proc:
