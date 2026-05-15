@@ -325,7 +325,7 @@ def main():
                     )
 
                     if running_job["job"]["cmd"].get("pipe"):
-                        r.send_job_to_background(running_job["job"], HOST_NAME)
+                        r.send_job_to_background_local(running_job["job"])
                     else:
                         job_restore_command = restore_command_parser(running_job["job"])
                         if job_restore_command:

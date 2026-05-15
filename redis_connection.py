@@ -115,6 +115,21 @@ class RedisConnection:
         else:
             return False
 
+    def _rpush(self, q_key, payload):
+
+        try:
+            push_status = self.r.rpush(q_key, payload)
+
+        except (ConnectionError, RedisError) as e:
+            logger.warning(f"Redis lrem failure {e}")
+            self.r = self.connect_to_redis()
+            return None
+
+        if push_status >= 1:
+            return True
+        else:
+            return False
+
     def _lpush(self, q_key, payload):
 
         try:
@@ -185,10 +200,15 @@ class RedisConnection:
         q_key = f"{self.queue_key_restore}:{box}"
         return self._lpush(q_key, payload)
 
-    def send_job_to_background(self, job, box):
+    def send_job_to_background(self, job):
         payload = json.dumps(job, ensure_ascii=False, separators=(",", ":"))
-        q_key = f"{self.queue_key_background}:{box}"
-        return self._lpush(q_key, payload)
+        q_key = f"{self.queue_key_background}"
+        return self._rpush(q_key, payload)
+
+    def send_job_to_background_local(self, job):
+        payload = json.dumps(job, ensure_ascii=False, separators=(",", ":"))
+        q_key = f"{self.queue_key_background_local}"
+        return self._rpush(q_key, payload)
 
     def send_job_to_priority(self, job):
         payload = json.dumps(job, ensure_ascii=False, separators=(",", ":"))
