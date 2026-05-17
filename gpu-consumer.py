@@ -225,7 +225,9 @@ def get_crackin(job: dict) -> None | Popen:
 
 
 def kill_process(process):
+
     for k in range(4):
+        logger.info(f"attempting to kill process {process.pid} count {k}")
         try:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait(timeout=1)
@@ -238,14 +240,16 @@ def kill_process(process):
 
 def term_process(process):
     for k in range(4):
+        logger.info(f"attempting to term process {process.pid} count {k}")
         try:
             os.killpg(process.pid, signal.SIGTERM)
-            process.wait(timeout=1)
+            process.wait(timeout=10)
             return process
         except subprocess.TimeoutExpired:
             logger.warning("TERM timed out; sending KILL to %s", process.pid)
         except ProcessLookupError:
             return process
+    logger.warning("TERM timed out; sending KILL_process to %s", process.pid)
     return kill_process(process)
 
 
