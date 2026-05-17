@@ -254,7 +254,10 @@ def term_process(process):
 
 
 def _check_restore_path(session_id):
-    working_dir = Path("/opt/hashcat-7.1.1")
+    # server
+    # working_dir = Path("/opt/hashcat-7.1.1")
+    # cloud
+    working_dir = Path("/home/hashcat/hashcat-7.1.2")
     restore_file = working_dir / f"{session_id}.restore"
     return restore_file.exists()
 
